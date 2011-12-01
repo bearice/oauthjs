@@ -7,8 +7,7 @@
  * @git git://github.com/itea/oauthjs.git
  */
 
-var http = require('http'), querystring = require('querystring');
-var https = require('https');
+var http = require('http'), querystring = require('querystring'), url = require('url');
 var enc = encodeURIComponent, dec = decodeURIComponent;
 /**
  *
@@ -19,7 +18,9 @@ function OAuth(configuration) {
 }
 
 OAuth.prototype.acquireRequestToken = function(body, callback, ctx) {
-    var client = OAuth.createClient(this.config.requestTokenURI);
+    var urlInfo = url.parse(this.config.requestTokenURI);
+
+    var client = OAuth.createClient(urlInfo);
     
     var oauthHeader = OAuth.buildRequestAuthorizationHeader(this);
     var signatureBaseString = OAuth.generateSignatureBaseString('POST',
@@ -27,35 +28,32 @@ OAuth.prototype.acquireRequestToken = function(body, callback, ctx) {
     //console.log('baseString: '+ signatureBaseString);
     oauthHeader['oauth_signature'] = OAuth.sign(this, signatureBaseString);
     
+    var body = querystring.stringify(body);
     var headers = {
-        'Host': this.config.server,
+        'Host': urlInfo.hostname,
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': OAuth.toAuthorizationHeaderString(oauthHeader)
+        'Content-Length': body.length,
+        'Authorization': OAuth.toAuthorizationHeaderString(oauthHeader),
     };
     //console.log(JSON.stringify(headers));
-    var request = client.http.request({
-        host: client.host,
-        port: client.port,
-        path: client.path,
-        method: 'POST',
-        headers: headers
-    });
-
-    request.write(querystring.stringify(body));
+    var request = client.request('POST', urlInfo.pathname, headers);
+    request.write(body);
     request.end();
     
     var oauth = this;
     request.on('response', function(response) {
+          //console.log(response);
         if(+response.statusCode === 200) {
             response.setEncoding('utf8');
             response.on('data', function(data) {
+          		//console.log(data);
                 OAuth.parseOAuthBody(data.toString(), oauth);
                 callback && callback.call(ctx, oauth);
             });
         } else {
-            //console.log('ERROR: '+ response.statusCode);
+            console.log('ERROR: '+ response.statusCode);
             response.on('data', function(data) {
-                //console.log('ERROR-BODY: '+ data);
+                console.log('ERROR-BODY: '+ data);
                 var err = new Error(data.toString());
                 err.statusCode = response.statusCode;
                 callback && callback.call(ctx, err);
@@ -69,6 +67,7 @@ OAuth.prototype.getAuthorizeTokenURI = function(parameters){
     parameters = parameters || {};
     var s = [];
     s.push('oauth_token='+ enc(this.oauthToken));
+    s.push('oauth_callback='+ enc(this.config.callbackURI));
     for(var p in parameters) s.push([p, '=', enc(parameters[p])].join(''));
     return [this.config.authorizeTokenURI, '?', s.join('&')].join('');
 };
@@ -79,24 +78,20 @@ OAuth.prototype.setOAuthVerifier = function(oauthVerifier){
 };
 
 OAuth.prototype.acquireAccessToken = function(callback, ctx){
-    var client = OAuth.createClient(this.config.accessTokenURI);
+    var urlInfo = url.parse(this.config.accessTokenURI);
+    var client = OAuth.createClient(urlInfo);
     var oauthHeader = OAuth.buildAccessAuthorizationHeader(this);
     var signatureBaseString = OAuth.generateSignatureBaseString('POST',
         this.config.accessTokenURI, oauthHeader);
     oauthHeader['oauth_signature'] = OAuth.sign(this, signatureBaseString);
     
     var headers = {
-        'Host': this.config.server,
+        'Host': urlInfo.hostname,
         'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': 0,
         'Authorization': OAuth.toAuthorizationHeaderString(oauthHeader)
     };
-    var request = client.http.request({
-        host: client.host,
-        port: client.port,
-        path: client.path,
-        method: 'POST',
-        headers: headers
-    });
+    var request = client.request('POST', urlInfo.pathname, headers);
     request.end();
 
     var oauth = this;
@@ -109,9 +104,9 @@ OAuth.prototype.acquireAccessToken = function(callback, ctx){
                 //console.log(data.toString());
             });
         } else {
-            //console.log('ERROR: '+ response.statusCode);
+            console.log('ERROR: '+ response.statusCode);
             response.on('data', function(data) {
-                //console.log('ERROR-BODY: '+ data);
+                console.log('ERROR-BODY: '+ data);
                 var err = new Error(data.toString());
                 err.statusCode = response.statusCode;
                 callback && callback.call(ctx, err);
@@ -131,29 +126,14 @@ OAuth.prototype.generateAuthorizationString = function(method, uri, parameters) 
     return OAuth.toAuthorizationHeaderString(oauthHeader);
 };
 
+OAuth.prototype.debugGenerateBaseString = function(method, uri, parameters) {
+    var oauthHeader = OAuth.buildAuthorizationHeader(this);
+    return OAuth.generateSignatureBaseString(method, uri, oauthHeader, parameters);
+};
+
 /* -------------------------------- */
-OAuth.createClient = function(uri) {
-    var secure = /^https.+/.test(uri) ? true : false;
-    var group = /^https?:\/\/([^\/:]+)(?:\:(\d+))?(\/.+)?$/.exec(uri) || [];
-    var port = group[2], server = group[1];
-    if(!port) port = secure ? 443 : 80;
-    port = +port;
-    if (secure) {
-        return {
-            http: https,
-            host: server,
-            port: port,
-            path: group[3]
-        };
-    }
-    else {
-        return {
-            http: http,
-            host: server,
-            port: port,
-            path: group[3]
-        };
-    }
+OAuth.createClient = function(info) {
+    return http.createClient(info.port || 80, info.hostname, false);
 };
 
 OAuth.parseOAuthBody = function(body, oauth) {
@@ -234,6 +214,7 @@ OAuth.generateSignatureBaseString = function(method, uri, headers, bodys) {
     for(var idx in bodys) {
         params.push([enc(idx), enc(bodys[idx])].join('='));
     }
+
     return [method.toUpperCase(), enc(uri.replace(/\?.+$/, '')), enc(params.sort().join('&'))].join('&');
 };
 
@@ -250,5 +231,5 @@ OAuth.signHmacSha1 = function(baseString, key) {
     return signer.digest('base64');
 };
 
-exports.OAuth = OAuth;
+module.exports = OAuth;
 
