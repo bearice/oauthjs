@@ -13,9 +13,20 @@ var enc = encodeURIComponent, dec = decodeURIComponent;
  *
  * @param config: Object
  */
-function OAuth(configuration) {
-    this.config = configuration || {};
+function OAuth(config,oauth_user) {
+    this.config = config || {};
+    if(oauth_user){
+        this.oauthToken = oauth_user.token;
+        this.oauthTokenSecret = oauth_user.token_secret;
+    }
 }
+
+OAuth.prototype.serializable = function(){
+    return {
+        token:        this.oauthToken,
+        token_secret: this.oauthTokenSecret,
+    };
+};
 
 OAuth.prototype.acquireRequestToken = function(body, callback, ctx) {
     var urlInfo = url.parse(this.config.requestTokenURI);
@@ -51,9 +62,9 @@ OAuth.prototype.acquireRequestToken = function(body, callback, ctx) {
                 callback && callback.call(ctx, oauth);
             });
         } else {
-            console.log('ERROR: '+ response.statusCode);
+            //console.log('ERROR: '+ response.statusCode);
             response.on('data', function(data) {
-                console.log('ERROR-BODY: '+ data);
+                //console.log('ERROR-BODY: '+ data);
                 var err = new Error(data.toString());
                 err.statusCode = response.statusCode;
                 callback && callback.call(ctx, err);
