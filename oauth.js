@@ -23,8 +23,8 @@ function OAuth(config,oauth_user) {
 
 OAuth.prototype.serializable = function(){
     return {
-        token:        this.oauthToken,
-        token_secret: this.oauthTokenSecret,
+        token:  this.oauthToken,
+        secret: this.oauthTokenSecret,
     };
 };
 
