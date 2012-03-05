@@ -76,10 +76,14 @@ OAuth.prototype.acquireRequestToken = function(body, callback, ctx) {
 
 OAuth.prototype.getAuthorizeTokenURI = function(parameters){
     parameters = parameters || {};
+    parameters['oauth_token'] = this.oauthToken;
+    if(!parameters['oauth_callback'])
+        parameters['oauth_callback'] = this.config.callbackURI;
+        
     var s = [];
-    s.push('oauth_token='+ enc(this.oauthToken));
-    s.push('oauth_callback='+ enc(this.config.callbackURI));
-    for(var p in parameters) s.push([p, '=', enc(parameters[p])].join(''));
+    for(var p in parameters) 
+        s.push([p, '=', enc(parameters[p])].join(''));
+        
     return [this.config.authorizeTokenURI, '?', s.join('&')].join('');
 };
 
